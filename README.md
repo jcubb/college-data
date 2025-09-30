@@ -1,4 +1,4 @@
-collegestats24.py
+collegestats.py
 
 This repository reads selected tables from a NCES IPEDS Access database.
 Generally recommend using latest data found here, which will likely be a "Provisional" release:
@@ -16,13 +16,13 @@ The Access file is a local data artifact and should not be checked into git. Thi
 Quick PowerShell examples (Windows PowerShell v5.x)
 # Run once for the current PowerShell session
 $env:IPEDS_DB = 'C:\path\to\IPEDS2023<YY>.accdb'
-python collegestats24.py
+python collegestats.py
 
 # Make it persistent for the user (uses setx, requires reopening shells)
 setx IPEDS_DB 'C:\path\to\IPEDS2023<YY>.accdb'
 
 # Or run with an explicit path
-python collegestats24.py --db 'C:\path\to\IPEDS2023<YY>.accdb'
+python collegestats.py --db 'C:\path\to\IPEDS2023<YY>.accdb'
 
 If you need to track the binary DB in git, consider using Git LFS (Large File Storage) instead of checking the raw .accdb into the repo.
 
