@@ -7,7 +7,7 @@ NCES = National Center for Education Statistics
 IPEDS = Integrated Postsecondary Education Data System
 
 sample command line call:
-$env:DB = 'C:\\Users\\gcubb\\OneDrive\\Python\\college-data\\IPEDS_2023-24_Provisional\\IPEDS202324.accdb'
+$env:DB = 'C:\\Users\\gcubb\\OneDrive\\Python\\data-hub\\IPEDS_2023-24_Provisional\\IPEDS202324.accdb'
 $env:IDS = 'C:\\Users\\gcubb\\OneDrive\\Python\\college-data\\select_college_IDs.xlsx'
 python collegestats.py --year 2023 --db $env:DB --ids $env:IDS
 
@@ -128,7 +128,7 @@ def _resolve_ids_path(cli_ids=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='Read IPEDS Access DB and extract tables')
-    parser.add_argument('--db', '-d', help='Path to IPEDS .accdb file', default='C:\\Users\\gcubb\\OneDrive\\Python\\college-data\\IPEDS_2023-24_Provisional\\IPEDS202324.accdb')
+    parser.add_argument('--db', '-d', help='Path to IPEDS .accdb file', default='C:\\Users\\gcubb\\OneDrive\\Python\\data-hub\\IPEDS_2023-24_Provisional\\IPEDS202324.accdb')
     parser.add_argument('--ids', help='Path to college_IDs_backup.xlsx', default='C:\\Users\\gcubb\\OneDrive\\Python\\college-data\\select_college_IDs.xlsx')
     parser.add_argument('--year', '-y', help='Start year (e.g. 2023)', default='2023')
     args = parser.parse_args(argv)
