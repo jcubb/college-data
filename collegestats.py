@@ -7,9 +7,10 @@ NCES = National Center for Education Statistics
 IPEDS = Integrated Postsecondary Education Data System
 
 sample command line call:
-$env:DB = 'C:\\Users\\gcubb\\OneDrive\\Python\\data-hub\\IPEDS_2023-24_Provisional\\IPEDS202324.accdb'
+$env:DB = 'C:\\Users\\gcubb\\OneDrive\\Python\\data-hub'
 $env:IDS = 'C:\\Users\\gcubb\\OneDrive\\Python\\college-data\\select_college_IDs.xlsx'
-python collegestats.py --year 2023 --db $env:DB --ids $env:IDS
+python collegestats.py --year 2023 --db $env:DB --ids $env:IDS --folder-tag "Provisional"
+python collegestats.py --year 2022 --db $env:DB --ids $env:IDS --folder-tag "Final"
 
 ~for time series data on these statistics, see collegestats_ts.py
 
@@ -28,23 +29,23 @@ except Exception:
     pass
 
 
-def make_ipeds_names(start_year):
+def make_ipeds_names(start_year, folder_tag='Provisional'):
     """Return (folder_name, file_name) for a given start_year (e.g., "2023").
 
     Example:
-    - start_year='2023' -> ('IPEDS_2023-24_Provisional', 'IPEDS202324.accdb')
+    - start_year='2023', folder_tag='Final' -> ('IPEDS_2023-24_Final', 'IPEDS202324.accdb')
     """
     try:
         end_year = int(start_year) + 1
     except Exception:
         end_year = int(str(start_year)[-2:]) + 1
     end_short = str(end_year)[-2:]
-    folder_name = f'IPEDS_{start_year}-{end_short}_Provisional'
+    folder_name = f'IPEDS_{start_year}-{end_short}_{folder_tag}'
     file_name = f'IPEDS{start_year}{end_short}.accdb'
     return folder_name, file_name
 
 
-def _resolve_db_path(start_year, cli_db=None):
+def _resolve_db_path(start_year, folder_tag, cli_db_root=None):
     """Resolve the path to the IPEDS .accdb file for a given start_year.
 
     Resolution order:
@@ -56,22 +57,24 @@ def _resolve_db_path(start_year, cli_db=None):
     start_year: full year string like '2023'. This will be used to construct
     folder and filename like 'IPEDS_2023-24_Provisional/IPEDS202324.accdb'.
     """
+    folder_name, file_name = make_ipeds_names(start_year, folder_tag)
     # 1) CLI argument passed in programmatically
-    if cli_db:
+    if cli_db_root:
+        cli_db = os.path.join(cli_db_root, folder_name, file_name)
         p = Path(cli_db).expanduser()
         if p.exists():
             return str(p)
 
     # 2) environment variable
-    env_path = os.environ.get('IPEDS_DB')
-    if env_path:
+    env_path_root = os.environ.get('IPEDS_DB')
+    if env_path_root:
+        env_path = os.path.join(env_path_root, folder_name, file_name)
         p = Path(env_path).expanduser()
         if p.exists():
             return str(p)
 
     # 3) repo-relative candidates (build folder/filename from start_year)
     repo_root = Path(__file__).resolve().parent
-    folder_name, file_name = make_ipeds_names(start_year)
     candidates = [
         repo_root / folder_name / file_name,
         repo_root / '..' / folder_name / file_name,
@@ -131,10 +134,11 @@ def main(argv=None):
     parser.add_argument('--db', '-d', help='Path to IPEDS .accdb file', default='C:\\Users\\gcubb\\OneDrive\\Python\\data-hub\\IPEDS_2023-24_Provisional\\IPEDS202324.accdb')
     parser.add_argument('--ids', help='Path to college_IDs_backup.xlsx', default='C:\\Users\\gcubb\\OneDrive\\Python\\college-data\\select_college_IDs.xlsx')
     parser.add_argument('--year', '-y', help='Start year (e.g. 2023)', default='2023')
+    parser.add_argument('--folder-tag', help='Folder tag (e.g. Provisional, Final)', default='Provisional')
     args = parser.parse_args(argv)
-
+    
     year = args.year
-    db_path = _resolve_db_path(year, cli_db=args.db)
+    db_path = _resolve_db_path(year, args.folder_tag, cli_db_root=args.db)
     conn = pyodbc.connect(fr'Driver={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={db_path};')
     cursor = conn.cursor()
 

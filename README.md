@@ -5,8 +5,8 @@ Generally recommend using latest data found here, which will likely be a "Provis
 https://nces.ed.gov/ipeds/use-the-data/download-access-database
 
 How the script finds the Access DB
-- Command-line argument: pass --db or -d with the full path
-- Environment variable: set IPEDS_DB to the full path
+- Command-line argument: pass --db or -d with the path to the ROOT directory where the file folder is
+- Environment variable: set IPEDS_DB to the path to the ROOT directory
 - Repo-relative locations: the script will look for common candidate paths such as ./IPEDS_{START}-{END}_Provisional/IPEDS{START}{END}.accdb
 	(where {START} is the 4-digit start year and {END} is the last two digits of start_year+1, e.g. start=2023 -> folder `IPEDS_2023-24_Provisional` and file `IPEDS202324.accdb`)
 
@@ -15,14 +15,14 @@ The Access file is a local data artifact and should not be checked into git. Thi
 
 Quick PowerShell examples (Windows PowerShell v5.x)
 # Run once for the current PowerShell session
-$env:IPEDS_DB = 'C:\path\to\IPEDS2023<YY>.accdb'
+$env:IPEDS_DB = 'C:\path\to'
 python collegestats.py
 
 # Make it persistent for the user (uses setx, requires reopening shells)
-setx IPEDS_DB 'C:\path\to\IPEDS2023<YY>.accdb'
+setx IPEDS_DB 'C:\path\to'
 
 # Or run with an explicit path
-python collegestats.py --db 'C:\path\to\IPEDS2023<YY>.accdb'
+python collegestats.py --db 'C:\path\to'
 
 If you need to track the binary DB in git, consider using Git LFS (Large File Storage) instead of checking the raw .accdb into the repo.
 
