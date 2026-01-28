@@ -1,0 +1,37 @@
+{
+  "JerryC": {
+    "reach": [
+      "Amherst College",
+      "Dartmouth College",
+      "Stanford University"
+    ],
+    "middle": [
+      "Carleton College",
+      "Emory University",
+      "New York University"
+    ],
+    "likely": [
+      "Binghamton University",
+      "University of Wisconsin-Madison",
+      "Skidmore College"
+    ]
+  },
+  "Diane": {
+    "reach": [
+      "Brown University",
+      "Bowdoin College",
+      "Swarthmore College"
+    ],
+    "middle": [
+      "Boston College",
+      "Grinnell College",
+      "Smith College",
+      "Tufts University"
+    ],
+    "likely": [
+      "Bard College",
+      "Case Western Reserve University",
+      "University of Vermont"
+    ]
+  }
+}

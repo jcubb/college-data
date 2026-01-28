@@ -9,6 +9,9 @@
 # Local output
 raw.csv
 
+# Reference/archive folder (old notebooks and scripts)
+reference/
+
 # OS/editor noise
 .DS_Store
 __pycache__/

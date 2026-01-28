@@ -2,3 +2,7 @@ pyodbc
 python-dotenv
 pandas
 pytest
+dash
+plotly
+numpy
+gunicorn
