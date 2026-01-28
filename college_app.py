@@ -22,6 +22,63 @@ from plotly.subplots import make_subplots
 import os
 import json
 
+
+# City coordinates for schools in the dataset (lat, lon)
+CITY_COORDS = {
+    ('Berkeley', 'CA'): (37.8716, -122.2727), ('Davis', 'CA'): (38.5449, -121.7405),
+    ('Irvine', 'CA'): (33.6846, -117.8265), ('Los Angeles', 'CA'): (34.0522, -118.2437),
+    ('La Jolla', 'CA'): (32.8328, -117.2713), ('Santa Barbara', 'CA'): (34.4208, -119.6982),
+    ('Claremont', 'CA'): (34.0967, -117.7198), ('Stanford', 'CA'): (37.4275, -122.1697),
+    ('New London', 'CT'): (41.3557, -72.0995), ('Hartford', 'CT'): (41.7658, -72.6734),
+    ('Middletown', 'CT'): (41.5623, -72.6506), ('New Haven', 'CT'): (41.3083, -72.9279),
+    ('Washington', 'DC'): (38.9072, -77.0369), ('Coral Gables', 'FL'): (25.7215, -80.2684),
+    ('Atlanta', 'GA'): (33.7490, -84.3880), ('Chicago', 'IL'): (41.8781, -87.6298),
+    ('Champaign', 'IL'): (40.1164, -88.2434), ('Evanston', 'IL'): (42.0451, -87.6877),
+    ('South Bend', 'IN'): (41.6764, -86.2520), ('Bloomington', 'IN'): (39.1653, -86.5264),
+    ('Notre Dame', 'IN'): (41.7003, -86.2390), ('Grinnell', 'IA'): (41.7431, -92.7224),
+    ('New Orleans', 'LA'): (29.9511, -90.0715), ('Lewiston', 'ME'): (44.1004, -70.2148),
+    ('Brunswick', 'ME'): (43.9145, -69.9653), ('Waterville', 'ME'): (44.5520, -69.6317),
+    ('Amherst', 'MA'): (42.3732, -72.5199), ('Chestnut Hill', 'MA'): (42.3188, -71.1637),
+    ('Boston', 'MA'): (42.3601, -71.0589), ('Waltham', 'MA'): (42.3765, -71.2356),
+    ('Worcester', 'MA'): (42.2626, -71.8023), ('Cambridge', 'MA'): (42.3736, -71.1097),
+    ('Northampton', 'MA'): (42.3251, -72.6412), ('Medford', 'MA'): (42.4184, -71.1062),
+    ('Wellesley', 'MA'): (42.2968, -71.2924), ('Williamstown', 'MA'): (42.7120, -73.2037),
+    ('Ann Arbor', 'MI'): (42.2808, -83.7430), ('Northfield', 'MN'): (44.4583, -93.1616),
+    ('Saint Paul', 'MN'): (44.9537, -93.0900), ('Minneapolis', 'MN'): (44.9778, -93.2650),
+    ('Saint Louis', 'MO'): (38.6270, -90.1994), ('Hanover', 'NH'): (43.7022, -72.2896),
+    ('Princeton', 'NJ'): (40.3573, -74.6672), ('Annandale-On-Hudson', 'NY'): (42.0229, -73.9096),
+    ('New York', 'NY'): (40.7128, -74.0060), ('Hamilton', 'NY'): (42.8270, -75.5446),
+    ('Ithaca', 'NY'): (42.4440, -76.5019), ('Clinton', 'NY'): (43.0484, -75.3785),
+    ('Troy', 'NY'): (42.7284, -73.6918), ('Rochester', 'NY'): (43.1566, -77.6088),
+    ('Bronxville', 'NY'): (40.9401, -73.8318), ('Saratoga Springs', 'NY'): (43.0831, -73.7846),
+    ('Albany', 'NY'): (42.6526, -73.7562), ('Vestal', 'NY'): (42.0848, -76.0540),
+    ('Syracuse', 'NY'): (43.0481, -76.1474), ('Poughkeepsie', 'NY'): (41.7004, -73.9210),
+    ('Davidson', 'NC'): (35.4993, -80.8487), ('Durham', 'NC'): (35.9940, -78.8986),
+    ('Chapel Hill', 'NC'): (35.9132, -79.0558), ('Winston-Salem', 'NC'): (36.0999, -80.2442),
+    ('Cleveland', 'OH'): (41.4993, -81.6944), ('Granville', 'OH'): (40.0681, -82.5196),
+    ('Gambier', 'OH'): (40.3759, -82.3974), ('Oberlin', 'OH'): (41.2940, -82.2171),
+    ('Portland', 'OR'): (45.5152, -122.6784), ('Lewisburg', 'PA'): (40.9645, -76.8844),
+    ('Pittsburgh', 'PA'): (40.4406, -79.9959), ('Carlisle', 'PA'): (40.2015, -77.1989),
+    ('Lancaster', 'PA'): (40.0379, -76.3055), ('Haverford', 'PA'): (40.0104, -75.3066),
+    ('Easton', 'PA'): (40.6910, -75.2207), ('Bethlehem', 'PA'): (40.6259, -75.3705),
+    ('Philadelphia', 'PA'): (39.9526, -75.1652), ('Swarthmore', 'PA'): (39.9020, -75.3499),
+    ('Villanova', 'PA'): (40.0388, -75.3458), ('Providence', 'RI'): (41.8240, -71.4128),
+    ('Nashville', 'TN'): (36.1627, -86.7816), ('Houston', 'TX'): (29.7604, -95.3698),
+    ('Dallas', 'TX'): (32.7767, -96.7970), ('Austin', 'TX'): (30.2672, -97.7431),
+    ('Middlebury', 'VT'): (44.0153, -73.1673), ('Burlington', 'VT'): (44.4759, -73.2121),
+    ('Williamsburg', 'VA'): (37.2707, -76.7075), ('University of Richmond', 'VA'): (37.5741, -77.5400),
+    ('Blacksburg', 'VA'): (37.2296, -80.4139), ('Charlottesville', 'VA'): (38.0293, -78.4767),
+    ('Madison', 'WI'): (43.0731, -89.4012),
+}
+
+
+def get_school_coordinates(row):
+    """Get coordinates for a school based on city and state."""
+    city_state = (row['CITY'], row['STABBR'])
+    if city_state in CITY_COORDS:
+        return CITY_COORDS[city_state]
+    return (None, None)
+
 # --- Load Data ---
 DATA_FILE = os.path.join(os.path.dirname(__file__), 'ipeds_2023_2014.csv')
 PROFILES_FILE = os.path.join(os.path.dirname(__file__), 'user_profiles.json')
@@ -89,29 +146,6 @@ def get_profile_names():
     """Get list of saved profile names."""
     profiles = load_profiles()
     return sorted(profiles.keys())
-
-
-# State coordinates for mapping (approximate center of each state)
-STATE_COORDS = {
-    'AL': (32.806671, -86.791130), 'AK': (61.370716, -152.404419), 'AZ': (33.729759, -111.431221),
-    'AR': (34.969704, -92.373123), 'CA': (36.116203, -119.681564), 'CO': (39.059811, -105.311104),
-    'CT': (41.597782, -72.755371), 'DE': (39.318523, -75.507141), 'DC': (38.897438, -77.026817),
-    'FL': (27.766279, -81.686783), 'GA': (33.040619, -83.643074), 'HI': (21.094318, -157.498337),
-    'ID': (44.240459, -114.478828), 'IL': (40.349457, -88.986137), 'IN': (39.849426, -86.258278),
-    'IA': (42.011539, -93.210526), 'KS': (38.526600, -96.726486), 'KY': (37.668140, -84.670067),
-    'LA': (31.169546, -91.867805), 'ME': (44.693947, -69.381927), 'MD': (39.063946, -76.802101),
-    'MA': (42.230171, -71.530106), 'MI': (43.326618, -84.536095), 'MN': (45.694454, -93.900192),
-    'MS': (32.741646, -89.678696), 'MO': (38.456085, -92.288368), 'MT': (46.921925, -110.454353),
-    'NE': (41.125370, -98.268082), 'NV': (38.313515, -117.055374), 'NH': (43.452492, -71.563896),
-    'NJ': (40.298904, -74.521011), 'NM': (34.840515, -106.248482), 'NY': (42.165726, -74.948051),
-    'NC': (35.630066, -79.806419), 'ND': (47.528912, -99.784012), 'OH': (40.388783, -82.764915),
-    'OK': (35.565342, -96.928917), 'OR': (44.572021, -122.070938), 'PA': (40.590752, -77.209755),
-    'RI': (41.680893, -71.511780), 'SC': (33.856892, -80.945007), 'SD': (44.299782, -99.438828),
-    'TN': (35.747845, -86.692345), 'TX': (31.054487, -97.563461), 'UT': (40.150032, -111.862434),
-    'VT': (44.045876, -72.710686), 'VA': (37.769337, -78.169968), 'WA': (47.400902, -121.490494),
-    'WV': (38.491226, -80.954453), 'WI': (44.268543, -89.616508), 'WY': (42.755966, -107.302490),
-    'PR': (18.220833, -66.590149), 'VI': (18.335765, -64.896335), 'GU': (13.444304, 144.793731),
-}
 
 
 # Load data at startup
@@ -638,8 +672,8 @@ def update_lists_table(reach, middle, likely, test_type):
     
     # Build the map with category-based colors
     df_map = df_filtered.copy()
-    df_map['lat'] = df_map['STABBR'].map(lambda x: STATE_COORDS.get(x, (None, None))[0])
-    df_map['lon'] = df_map['STABBR'].map(lambda x: STATE_COORDS.get(x, (None, None))[1])
+    df_map['lat'] = df_map.apply(lambda r: get_school_coordinates(r)[0], axis=1)
+    df_map['lon'] = df_map.apply(lambda r: get_school_coordinates(r)[1], axis=1)
     df_map = df_map.dropna(subset=['lat', 'lon'])
     
     # Color mapping for categories
@@ -720,10 +754,10 @@ def find_schools(n_clicks, loctypes, admit_min, admit_max, test_type):
     fig = go.Figure()
     
     if count > 0:
-        # Add coordinates from state lookup
+        # Add coordinates from city lookup
         df_map = df_current.copy()
-        df_map['lat'] = df_map['STABBR'].map(lambda x: STATE_COORDS.get(x, (None, None))[0])
-        df_map['lon'] = df_map['STABBR'].map(lambda x: STATE_COORDS.get(x, (None, None))[1])
+        df_map['lat'] = df_map.apply(lambda r: get_school_coordinates(r)[0], axis=1)
+        df_map['lon'] = df_map.apply(lambda r: get_school_coordinates(r)[1], axis=1)
         df_map = df_map.dropna(subset=['lat', 'lon'])
         
         if len(df_map) > 0:
