@@ -91,6 +91,29 @@ def get_profile_names():
     return sorted(profiles.keys())
 
 
+# State coordinates for mapping (approximate center of each state)
+STATE_COORDS = {
+    'AL': (32.806671, -86.791130), 'AK': (61.370716, -152.404419), 'AZ': (33.729759, -111.431221),
+    'AR': (34.969704, -92.373123), 'CA': (36.116203, -119.681564), 'CO': (39.059811, -105.311104),
+    'CT': (41.597782, -72.755371), 'DE': (39.318523, -75.507141), 'DC': (38.897438, -77.026817),
+    'FL': (27.766279, -81.686783), 'GA': (33.040619, -83.643074), 'HI': (21.094318, -157.498337),
+    'ID': (44.240459, -114.478828), 'IL': (40.349457, -88.986137), 'IN': (39.849426, -86.258278),
+    'IA': (42.011539, -93.210526), 'KS': (38.526600, -96.726486), 'KY': (37.668140, -84.670067),
+    'LA': (31.169546, -91.867805), 'ME': (44.693947, -69.381927), 'MD': (39.063946, -76.802101),
+    'MA': (42.230171, -71.530106), 'MI': (43.326618, -84.536095), 'MN': (45.694454, -93.900192),
+    'MS': (32.741646, -89.678696), 'MO': (38.456085, -92.288368), 'MT': (46.921925, -110.454353),
+    'NE': (41.125370, -98.268082), 'NV': (38.313515, -117.055374), 'NH': (43.452492, -71.563896),
+    'NJ': (40.298904, -74.521011), 'NM': (34.840515, -106.248482), 'NY': (42.165726, -74.948051),
+    'NC': (35.630066, -79.806419), 'ND': (47.528912, -99.784012), 'OH': (40.388783, -82.764915),
+    'OK': (35.565342, -96.928917), 'OR': (44.572021, -122.070938), 'PA': (40.590752, -77.209755),
+    'RI': (41.680893, -71.511780), 'SC': (33.856892, -80.945007), 'SD': (44.299782, -99.438828),
+    'TN': (35.747845, -86.692345), 'TX': (31.054487, -97.563461), 'UT': (40.150032, -111.862434),
+    'VT': (44.045876, -72.710686), 'VA': (37.769337, -78.169968), 'WA': (47.400902, -121.490494),
+    'WV': (38.491226, -80.954453), 'WI': (44.268543, -89.616508), 'WY': (42.755966, -107.302490),
+    'PR': (18.220833, -66.590149), 'VI': (18.335765, -64.896335), 'GU': (13.444304, 144.793731),
+}
+
+
 # Load data at startup
 cdat = load_data()
 cdat = add_computed_fields(cdat)
@@ -117,6 +140,7 @@ HEADER_STYLE = {'color': '#34495e'}
 def create_nav():
     return html.Div([
         dcc.Link('Compare Schools', href='/', style={'marginRight': '20px', 'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}),
+        dcc.Link('Find Schools', href='/find', style={'marginRight': '20px', 'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}),
         dcc.Link('Build School Lists', href='/lists', style={'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}),
     ], style={'marginBottom': '20px', 'padding': '15px', 'backgroundColor': '#3498db', 'borderRadius': '5px'})
 
@@ -259,6 +283,92 @@ def create_lists_page():
             html.Div(id='lists-summary-table')
         ], style={'marginBottom': '30px'}),
         
+        # Map Section
+        html.Div([
+            html.H3('School Locations', style=HEADER_STYLE),
+            dcc.Graph(id='lists-map', style={'height': '500px'})
+        ], style={'marginBottom': '30px'}),
+        
+        html.Div([html.Hr(), html.P('Data Source: IPEDS (Integrated Postsecondary Education Data System)', 
+                   style={'textAlign': 'center', 'color': '#95a5a6', 'fontSize': '12px'})])
+    ], style={'maxWidth': '1400px', 'margin': '0 auto', 'padding': '20px', 'fontFamily': 'Arial, sans-serif'})
+
+
+# --- Page 3: Find Schools ---
+def create_find_page():
+    # Get unique LOCALE values from the most recent year
+    max_year = cdat['year'].max()
+    locale_values = sorted(cdat[cdat['year'] == max_year]['LOCALE'].dropna().unique())
+    
+    return html.Div([
+        create_nav(),
+        html.H1('Find Schools', 
+                style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
+        html.P('Search for schools based on location type and admission rate',
+               style={'textAlign': 'center', 'color': '#7f8c8d', 'marginBottom': '30px'}),
+        
+        # Search Criteria Section
+        html.Div([
+            html.H3('Search Criteria', style=HEADER_STYLE),
+            html.Div([
+                # LocType Filter
+                html.Div([
+                    html.Label('Location Type (select one or more):', style={'fontWeight': 'bold', 'marginBottom': '10px', 'display': 'block'}),
+                    dcc.Checklist(
+                        id='loctype-checklist',
+                        options=[{'label': f' {loc}', 'value': loc} for loc in locale_values],
+                        value=[],
+                        style={'columnCount': 3},
+                        inputStyle={'marginRight': '5px'},
+                        labelStyle={'marginBottom': '8px', 'display': 'block'}
+                    )
+                ], style={'width': '60%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+                
+                # Admit Rate Range
+                html.Div([
+                    html.Label('Admit Rate Range:', style={'fontWeight': 'bold', 'marginBottom': '10px', 'display': 'block'}),
+                    html.Div([
+                        html.Span('From: ', style={'marginRight': '5px'}),
+                        dcc.Input(id='admit-rate-min', type='number', min=0, max=100, step=1, value=0,
+                                 style={'width': '80px', 'padding': '5px', 'marginRight': '15px'}),
+                        html.Span('%', style={'marginRight': '20px'}),
+                        html.Span('To: ', style={'marginRight': '5px'}),
+                        dcc.Input(id='admit-rate-max', type='number', min=0, max=100, step=1, value=100,
+                                 style={'width': '80px', 'padding': '5px', 'marginRight': '5px'}),
+                        html.Span('%'),
+                    ]),
+                    html.P('(Lower bound is >=, upper bound is <=)', style={'fontSize': '12px', 'color': '#7f8c8d', 'marginTop': '5px'})
+                ], style={'width': '35%', 'display': 'inline-block', 'verticalAlign': 'top', 'marginLeft': '5%'}),
+            ]),
+            html.Div([
+                html.Button('Find Schools', id='find-schools-btn', n_clicks=0,
+                           style={'marginTop': '20px', 'padding': '12px 30px', 'backgroundColor': '#27ae60', 'color': 'white', 
+                                  'border': 'none', 'borderRadius': '5px', 'cursor': 'pointer', 'fontSize': '16px', 'fontWeight': 'bold'}),
+            ])
+        ], style=SECTION_STYLE),
+        
+        # Test Type Toggle
+        html.Div([
+            html.Label('Test Type for Table:', style={'fontWeight': 'bold', 'marginRight': '15px'}),
+            dcc.RadioItems(id='find-test-type-toggle',
+                options=[{'label': ' SAT', 'value': 'SAT'}, {'label': ' ACT', 'value': 'ACT'}],
+                value='SAT', inline=True, style={'display': 'inline-block'},
+                inputStyle={'marginRight': '5px'}, labelStyle={'marginRight': '20px', 'fontSize': '16px'})
+        ], style={'marginBottom': '20px'}),
+        
+        # Results Section
+        html.Div([
+            html.H3('Search Results', style=HEADER_STYLE),
+            html.Div(id='find-results-count', style={'marginBottom': '10px', 'fontStyle': 'italic', 'color': '#7f8c8d'}),
+            html.Div(id='find-results-table')
+        ], style={'marginBottom': '30px'}),
+        
+        # Map Section
+        html.Div([
+            html.H3('School Locations', style=HEADER_STYLE),
+            dcc.Graph(id='find-results-map', style={'height': '500px'})
+        ], style={'marginBottom': '30px'}),
+        
         html.Div([html.Hr(), html.P('Data Source: IPEDS (Integrated Postsecondary Education Data System)', 
                    style={'textAlign': 'center', 'color': '#95a5a6', 'fontSize': '12px'})])
     ], style={'maxWidth': '1400px', 'margin': '0 auto', 'padding': '20px', 'fontFamily': 'Arial, sans-serif'})
@@ -274,6 +384,8 @@ app.layout = html.Div([
 # --- URL Routing Callback ---
 @callback(Output('page-content', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
+    if pathname == '/find':
+        return create_find_page()
     if pathname == '/lists':
         return create_lists_page()
     return create_compare_page()
@@ -319,8 +431,8 @@ def create_school_table(df_current, test_type, category_col=None):
         df_current['SAT V 25-75'] = df_current.apply(lambda r: format_range(r, 'SATVR25', 'SATVR75'), axis=1)
         
         table_cols = {
-            'INSTNM': 'School Name', 'citystate': 'Location', 'APPLCN': 'Applications',
-            'ADMSSN': 'Admissions', 'percAdm': 'Admit Rate', 'APP_M_pct': 'App M%',
+            'INSTNM': 'School Name', 'citystate': 'Location', 'LOCALE': 'LocType',
+            'APPLCN': 'Applications', 'percAdm': 'Admit Rate', 'APP_M_pct': 'App M%',
             'ADM_M_ratio': 'Adm+ M', 'APP_W_pct': 'App W%', 'ADM_W_ratio': 'Adm+ W',
             'SAT M 25-75': 'SAT M 25-75', 'SAT V 25-75': 'SAT V 25-75',
             'SATPCT': 'SAT Sub%', 'approxUndergrad': 'Est. Ugrad',
@@ -332,8 +444,8 @@ def create_school_table(df_current, test_type, category_col=None):
         df_current['ACT M 25-75'] = df_current.apply(lambda r: format_range(r, 'ACTMT25', 'ACTMT75'), axis=1)
         
         table_cols = {
-            'INSTNM': 'School Name', 'citystate': 'Location', 'APPLCN': 'Applications',
-            'ADMSSN': 'Admissions', 'percAdm': 'Admit Rate', 'APP_M_pct': 'App M%',
+            'INSTNM': 'School Name', 'citystate': 'Location', 'LOCALE': 'LocType',
+            'APPLCN': 'Applications', 'percAdm': 'Admit Rate', 'APP_M_pct': 'App M%',
             'ADM_M_ratio': 'Adm+ M', 'APP_W_pct': 'App W%', 'ADM_W_ratio': 'Adm+ W',
             'ACT C 25-75': 'ACT C 25-75', 'ACT M 25-75': 'ACT M 25-75',
             'ACTPCT': 'ACT Sub%', 'approxUndergrad': 'Est. Ugrad',
@@ -469,19 +581,39 @@ def manage_profiles(load_clicks, save_clicks, delete_clicks, selected_profile, n
 
 
 @callback(
-    Output('lists-summary-table', 'children'),
+    [Output('lists-summary-table', 'children'), Output('lists-map', 'figure')],
     [Input('reach-schools', 'value'), Input('middle-schools', 'value'), Input('likely-schools', 'value'),
      Input('lists-test-type-toggle', 'value')]
 )
 def update_lists_table(reach, middle, likely, test_type):
-    """Update the summary table for school lists."""
+    """Update the summary table and map for school lists."""
     reach = reach or []
     middle = middle or []
     likely = likely or []
     
     all_schools = reach + middle + likely
+    
+    # Create the map
+    fig = go.Figure()
+    
     if not all_schools:
-        return html.P('Select schools in the lists above to see their summary.', style={'color': '#7f8c8d', 'fontStyle': 'italic'})
+        # Empty map
+        fig.update_geos(
+            scope='usa',
+            showland=True,
+            landcolor='rgb(243, 243, 243)',
+            showlakes=True,
+            lakecolor='rgb(255, 255, 255)',
+            showsubunits=True,
+            subunitcolor='rgb(200, 200, 200)',
+            bgcolor='rgba(0,0,0,0)'
+        )
+        fig.update_layout(
+            margin=dict(l=0, r=0, t=30, b=0),
+            title=dict(text='Select schools to see their locations', x=0.5, xanchor='center'),
+            paper_bgcolor='white'
+        )
+        return html.P('Select schools in the lists above to see their summary.', style={'color': '#7f8c8d', 'fontStyle': 'italic'}), fig
     
     max_year = cdat['year'].max()
     df_current = cdat[cdat['year'] == max_year].copy()
@@ -504,7 +636,150 @@ def update_lists_table(reach, middle, likely, test_type):
     df_filtered['cat_order'] = df_filtered['Category'].map(category_order)
     df_filtered = df_filtered.sort_values(['cat_order', 'INSTNM']).drop(columns=['cat_order'])
     
-    return create_school_table(df_filtered, test_type, category_col='Category')
+    # Build the map with category-based colors
+    df_map = df_filtered.copy()
+    df_map['lat'] = df_map['STABBR'].map(lambda x: STATE_COORDS.get(x, (None, None))[0])
+    df_map['lon'] = df_map['STABBR'].map(lambda x: STATE_COORDS.get(x, (None, None))[1])
+    df_map = df_map.dropna(subset=['lat', 'lon'])
+    
+    # Color mapping for categories
+    category_colors = {'🎯 Reach': '#e74c3c', '⚖️ Middle': '#f39c12', '✅ Likely': '#27ae60'}
+    
+    if len(df_map) > 0:
+        for cat, color in category_colors.items():
+            cat_data = df_map[df_map['Category'] == cat]
+            if len(cat_data) > 0:
+                cat_data = cat_data.copy()
+                cat_data['hover_text'] = cat_data.apply(
+                    lambda r: f"<b>{r['INSTNM']}</b><br>{r['CITY']}, {r['STABBR']}<br>Admit Rate: {r['percAdm']:.1f}%", 
+                    axis=1
+                )
+                fig.add_trace(go.Scattergeo(
+                    lon=cat_data['lon'],
+                    lat=cat_data['lat'],
+                    text=cat_data['hover_text'],
+                    hoverinfo='text',
+                    mode='markers',
+                    marker=dict(size=14, color=color, line=dict(width=1, color='white')),
+                    name=cat
+                ))
+    
+    fig.update_geos(
+        scope='usa',
+        showland=True,
+        landcolor='rgb(243, 243, 243)',
+        showlakes=True,
+        lakecolor='rgb(255, 255, 255)',
+        showsubunits=True,
+        subunitcolor='rgb(200, 200, 200)',
+        showcountries=True,
+        countrycolor='rgb(150, 150, 150)',
+        bgcolor='rgba(0,0,0,0)'
+    )
+    
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=30, b=0),
+        title=dict(text=f'{len(all_schools)} School{"s" if len(all_schools) != 1 else ""} in Your List', x=0.5, xanchor='center'),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+        paper_bgcolor='white'
+    )
+    
+    return create_school_table(df_filtered, test_type, category_col='Category'), fig
+
+
+# --- Page 3 Callbacks: Find Schools ---
+@callback(
+    [Output('find-results-table', 'children'), Output('find-results-count', 'children'),
+     Output('find-results-map', 'figure')],
+    [Input('find-schools-btn', 'n_clicks')],
+    [State('loctype-checklist', 'value'), State('admit-rate-min', 'value'),
+     State('admit-rate-max', 'value'), State('find-test-type-toggle', 'value')],
+    prevent_initial_call=True
+)
+def find_schools(n_clicks, loctypes, admit_min, admit_max, test_type):
+    """Search for schools matching the criteria."""
+    max_year = cdat['year'].max()
+    df_current = cdat[cdat['year'] == max_year].copy()
+    
+    # Apply filters
+    if loctypes:
+        df_current = df_current[df_current['LOCALE'].isin(loctypes)]
+    
+    if admit_min is not None:
+        df_current = df_current[df_current['percAdm'] >= admit_min]
+    
+    if admit_max is not None:
+        df_current = df_current[df_current['percAdm'] <= admit_max]
+    
+    # Sort by admit rate
+    df_current = df_current.sort_values('percAdm')
+    
+    count = len(df_current)
+    
+    # Create the map
+    fig = go.Figure()
+    
+    if count > 0:
+        # Add coordinates from state lookup
+        df_map = df_current.copy()
+        df_map['lat'] = df_map['STABBR'].map(lambda x: STATE_COORDS.get(x, (None, None))[0])
+        df_map['lon'] = df_map['STABBR'].map(lambda x: STATE_COORDS.get(x, (None, None))[1])
+        df_map = df_map.dropna(subset=['lat', 'lon'])
+        
+        if len(df_map) > 0:
+            # Create hover text
+            df_map['hover_text'] = df_map.apply(
+                lambda r: f"<b>{r['INSTNM']}</b><br>{r['CITY']}, {r['STABBR']}<br>Admit Rate: {r['percAdm']:.1f}%", 
+                axis=1
+            )
+            
+            # Add school markers
+            fig.add_trace(go.Scattergeo(
+                lon=df_map['lon'],
+                lat=df_map['lat'],
+                text=df_map['hover_text'],
+                hoverinfo='text',
+                mode='markers',
+                marker=dict(
+                    size=12,
+                    color=df_map['percAdm'],
+                    colorscale='RdYlGn',
+                    cmin=0,
+                    cmax=100,
+                    colorbar=dict(title='Admit Rate %', thickness=15),
+                    line=dict(width=1, color='white')
+                ),
+                name='Schools'
+            ))
+    
+    # Configure the map layout
+    fig.update_geos(
+        scope='usa',
+        showland=True,
+        landcolor='rgb(243, 243, 243)',
+        showlakes=True,
+        lakecolor='rgb(255, 255, 255)',
+        showsubunits=True,
+        subunitcolor='rgb(200, 200, 200)',
+        showcountries=True,
+        countrycolor='rgb(150, 150, 150)',
+        bgcolor='rgba(0,0,0,0)'
+    )
+    
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=30, b=0),
+        title=dict(text=f'{count} School{"s" if count != 1 else ""} Found' if count > 0 else 'No Schools Found', 
+                   x=0.5, xanchor='center'),
+        geo=dict(bgcolor='rgba(0,0,0,0)'),
+        paper_bgcolor='white'
+    )
+    
+    if count == 0:
+        return (html.P('No schools found matching your criteria.', style={'color': '#e74c3c', 'fontStyle': 'italic'}), 
+                '', fig)
+    
+    count_text = f'Found {count} school{"s" if count != 1 else ""} matching your criteria.'
+    return create_school_table(df_current, test_type), count_text, fig
 
 
 # --- Run Server ---
@@ -522,6 +797,7 @@ if __name__ == '__main__':
     print(f"Network access: http://{local_ip}:8050")
     print("\nPages:")
     print("  - Compare Schools: http://127.0.0.1:8050/")
+    print("  - Find Schools:    http://127.0.0.1:8050/find")
     print("  - Build Lists:     http://127.0.0.1:8050/lists")
     print("\n(Use the network address to access from your phone)")
     print("Press Ctrl+C to stop the server")
