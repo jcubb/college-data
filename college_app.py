@@ -172,11 +172,17 @@ HEADER_STYLE = {'color': '#34495e'}
 
 # --- Navigation ---
 def create_nav():
+    link_style = {'marginRight': '25px', 'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}
     return html.Div([
-        dcc.Link('Compare Schools', href='/', style={'marginRight': '20px', 'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}),
-        dcc.Link('Find Schools', href='/find', style={'marginRight': '20px', 'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}),
+        html.Span('📊 ', style={'fontSize': '16px'}),
+        dcc.Link('Compare Schools', href='/', style=link_style),
+        html.Span('|', style={'color': 'rgba(255,255,255,0.5)', 'marginRight': '25px'}),
+        html.Span('🔍 ', style={'fontSize': '16px'}),
+        dcc.Link('Find Schools', href='/find', style=link_style),
+        html.Span('|', style={'color': 'rgba(255,255,255,0.5)', 'marginRight': '25px'}),
+        html.Span('📋 ', style={'fontSize': '16px'}),
         dcc.Link('Build School Lists', href='/lists', style={'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}),
-    ], style={'marginBottom': '20px', 'padding': '15px', 'backgroundColor': '#3498db', 'borderRadius': '5px'})
+    ], style={'marginBottom': '20px', 'padding': '15px', 'backgroundColor': '#3498db', 'borderRadius': '5px', 'textAlign': 'center'})
 
 
 # --- Page 1: Compare Schools ---
