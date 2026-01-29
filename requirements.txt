@@ -3,3 +3,4 @@ dash
 plotly
 gunicorn
 psycopg2-binary
+fpdf2

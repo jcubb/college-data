@@ -28,6 +28,12 @@ if DATABASE_URL:
     import psycopg2
     from psycopg2.extras import Json
 
+from fpdf import FPDF
+from fpdf.enums import XPos, YPos
+import io
+import base64
+from datetime import datetime
+
 
 # City coordinates for schools in the dataset (lat, lon)
 CITY_COORDS = {
@@ -404,7 +410,13 @@ def create_lists_page():
         # Summary Table Section
         html.Div([
             html.H3('Your School List Summary', style=HEADER_STYLE),
-            html.Div(id='lists-summary-table')
+            html.Div(id='lists-summary-table'),
+            html.Div([
+                html.Button('📄 Download PDF Report', id='download-pdf-btn', n_clicks=0,
+                           style={'marginTop': '15px', 'padding': '12px 25px', 'backgroundColor': '#8e44ad', 'color': 'white', 
+                                  'border': 'none', 'borderRadius': '5px', 'cursor': 'pointer', 'fontSize': '14px', 'fontWeight': 'bold'}),
+            ]),
+            dcc.Download(id='download-pdf')
         ], style={'marginBottom': '30px'}),
         
         # Map Section
@@ -810,6 +822,188 @@ def update_lists_table(reach, middle, likely, test_type):
     )
     
     return create_school_table(df_filtered, test_type, category_col='Category'), fig
+
+
+@callback(
+    Output('download-pdf', 'data'),
+    Input('download-pdf-btn', 'n_clicks'),
+    [State('reach-schools', 'value'), State('middle-schools', 'value'), State('likely-schools', 'value'),
+     State('lists-test-type-toggle', 'value'), State('profile-dropdown', 'value'), State('new-profile-input', 'value')],
+    prevent_initial_call=True
+)
+def generate_pdf_report(n_clicks, reach, middle, likely, test_type, selected_profile, new_profile_name):
+    """Generate a PDF report of the school list."""
+    reach = reach or []
+    middle = middle or []
+    likely = likely or []
+    all_schools = reach + middle + likely
+    
+    if not all_schools:
+        return None
+    
+    # Get data for the schools
+    max_year = cdat['year'].max()
+    df_current = cdat[cdat['year'] == max_year].copy()
+    df_filtered = df_current[df_current['INSTNM'].isin(all_schools)].copy()
+    
+    # Add category
+    def get_category(school):
+        if school in reach:
+            return 'Reach'
+        elif school in middle:
+            return 'Middle'
+        elif school in likely:
+            return 'Likely'
+        return ''
+    
+    df_filtered['Category'] = df_filtered['INSTNM'].apply(get_category)
+    category_order = {'Reach': 0, 'Middle': 1, 'Likely': 2}
+    df_filtered['cat_order'] = df_filtered['Category'].map(category_order)
+    df_filtered = df_filtered.sort_values(['cat_order', 'INSTNM']).drop(columns=['cat_order'])
+    
+    # Helper function for score ranges
+    def format_range(row, col25, col75):
+        v25 = row.get(col25)
+        v75 = row.get(col75)
+        if pd.notna(v25) and pd.notna(v75):
+            return f"{int(v25)}-{int(v75)}"
+        return '-'
+    
+    # Add computed columns for display
+    df_filtered['citystate'] = df_filtered['CITY'] + ', ' + df_filtered['STABBR']
+    if test_type == 'SAT':
+        df_filtered['Score1'] = df_filtered.apply(lambda r: format_range(r, 'SATMT25', 'SATMT75'), axis=1)
+        df_filtered['Score2'] = df_filtered.apply(lambda r: format_range(r, 'SATVR25', 'SATVR75'), axis=1)
+        score1_hdr, score2_hdr = 'SAT M 25-75', 'SAT V 25-75'
+        pct_col, pct_hdr = 'SATPCT', 'SAT Sub%'
+    else:
+        df_filtered['Score1'] = df_filtered.apply(lambda r: format_range(r, 'ACTCM25', 'ACTCM75'), axis=1)
+        df_filtered['Score2'] = df_filtered.apply(lambda r: format_range(r, 'ACTMT25', 'ACTMT75'), axis=1)
+        score1_hdr, score2_hdr = 'ACT C 25-75', 'ACT M 25-75'
+        pct_col, pct_hdr = 'ACTPCT', 'ACT Sub%'
+    
+    # Create PDF in landscape
+    pdf = FPDF(orientation='L')
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    
+    # Title
+    pdf.set_font('Helvetica', 'B', 18)
+    pdf.cell(0, 12, 'College Application List', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')
+    
+    # Profile name and date
+    profile_name = (new_profile_name.strip() if new_profile_name else None) or selected_profile
+    pdf.set_font('Helvetica', '', 11)
+    if profile_name:
+        pdf.cell(0, 8, f'Profile: {profile_name}', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')
+    pdf.cell(0, 8, f'Generated: {datetime.now().strftime("%B %d, %Y")}', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='C')
+    pdf.ln(5)
+    
+    # Summary counts
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(0, 8, f'Summary: {len(reach)} Reach, {len(middle)} Middle, {len(likely)} Likely ({len(all_schools)} Total)', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(3)
+    
+    # Table header
+    pdf.set_fill_color(52, 152, 219)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font('Helvetica', 'B', 7)
+    
+    # Column widths for landscape (total ~277mm for A4 landscape with margins)
+    # Cat, School, Location, LocType, Apps, Adm%, AppM%, Adm+M, AppW%, Adm+W, Score1, Score2, Sub%, Size
+    col_widths = [8, 52, 32, 22, 18, 14, 14, 14, 14, 14, 22, 22, 14, 17]
+    headers = ['Cat', 'School Name', 'Location', 'LocType', 'Apps', 'Adm%', 
+               'App M%', 'Adm+ M', 'App W%', 'Adm+ W', score1_hdr, score2_hdr, pct_hdr, 'Est. Ugrad']
+    
+    for i, header in enumerate(headers):
+        pdf.cell(col_widths[i], 7, header, border=1, align='C', fill=True)
+    pdf.ln()
+    
+    # Table rows
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font('Helvetica', '', 7)
+    
+    cat_colors = {'Reach': (250, 219, 216), 'Middle': (254, 249, 231), 'Likely': (213, 245, 227)}
+    cat_abbrev = {'Reach': 'R', 'Middle': 'M', 'Likely': 'L'}
+    
+    for _, row in df_filtered.iterrows():
+        cat = row['Category']
+        bg_color = cat_colors.get(cat, (255, 255, 255))
+        pdf.set_fill_color(*bg_color)
+        
+        # Category cell
+        pdf.set_font('Helvetica', 'B', 7)
+        pdf.cell(col_widths[0], 6, cat_abbrev.get(cat, ''), border=1, align='C', fill=True)
+        
+        pdf.set_font('Helvetica', '', 7)
+        
+        # School name (truncate if needed)
+        school = row['INSTNM'][:28] + '..' if len(row['INSTNM']) > 28 else row['INSTNM']
+        pdf.cell(col_widths[1], 6, school, border=1, fill=True)
+        
+        # Location
+        loc = row['citystate'][:17] + '..' if len(row['citystate']) > 17 else row['citystate']
+        pdf.cell(col_widths[2], 6, loc, border=1, fill=True)
+        
+        # LocType
+        loctype = str(row.get('LOCALE', '-'))[:12] if pd.notna(row.get('LOCALE')) else '-'
+        pdf.cell(col_widths[3], 6, loctype, border=1, align='C', fill=True)
+        
+        # Applications
+        apps = f"{int(row['APPLCN']):,}" if pd.notna(row.get('APPLCN')) else '-'
+        pdf.cell(col_widths[4], 6, apps, border=1, align='R', fill=True)
+        
+        # Admit Rate
+        adm = f"{row['percAdm']:.1f}%" if pd.notna(row.get('percAdm')) else '-'
+        pdf.cell(col_widths[5], 6, adm, border=1, align='C', fill=True)
+        
+        # App M%
+        app_m = f"{row['APP_M_pct']:.1f}%" if pd.notna(row.get('APP_M_pct')) else '-'
+        pdf.cell(col_widths[6], 6, app_m, border=1, align='C', fill=True)
+        
+        # Adm+ M
+        adm_m = f"{row['ADM_M_ratio']:.2f}" if pd.notna(row.get('ADM_M_ratio')) else '-'
+        pdf.cell(col_widths[7], 6, adm_m, border=1, align='C', fill=True)
+        
+        # App W%
+        app_w = f"{row['APP_W_pct']:.1f}%" if pd.notna(row.get('APP_W_pct')) else '-'
+        pdf.cell(col_widths[8], 6, app_w, border=1, align='C', fill=True)
+        
+        # Adm+ W
+        adm_w = f"{row['ADM_W_ratio']:.2f}" if pd.notna(row.get('ADM_W_ratio')) else '-'
+        pdf.cell(col_widths[9], 6, adm_w, border=1, align='C', fill=True)
+        
+        # Score ranges
+        pdf.cell(col_widths[10], 6, row['Score1'], border=1, align='C', fill=True)
+        pdf.cell(col_widths[11], 6, row['Score2'], border=1, align='C', fill=True)
+        
+        # Submit %
+        sub_pct = f"{row[pct_col]:.0f}%" if pd.notna(row.get(pct_col)) else '-'
+        pdf.cell(col_widths[12], 6, sub_pct, border=1, align='C', fill=True)
+        
+        # Est. Ugrad
+        size = f"{int(row['approxUndergrad']):,}" if pd.notna(row.get('approxUndergrad')) else '-'
+        pdf.cell(col_widths[13], 6, size, border=1, align='R', fill=True)
+        
+        pdf.ln()
+    
+    # Footer
+    pdf.ln(10)
+    pdf.set_font('Helvetica', 'I', 9)
+    pdf.set_text_color(128, 128, 128)
+    pdf.cell(0, 6, 'Data Source: IPEDS (Integrated Postsecondary Education Data System)', align='C')
+    
+    # Generate PDF bytes
+    pdf_bytes = bytes(pdf.output())
+    
+    # Create filename
+    if profile_name:
+        safe_name = profile_name.replace(' ', '_')
+    else:
+        safe_name = 'report'
+    filename = f"school_list_{safe_name}_{datetime.now().strftime('%Y%m%d')}.pdf"
+    
+    return dcc.send_bytes(pdf_bytes, filename)
 
 
 # --- Page 3 Callbacks: Find Schools ---
