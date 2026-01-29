@@ -1066,14 +1066,15 @@ def generate_pdf_report(n_clicks, reach, middle, likely, test_type, selected_pro
 @callback(
     [Output('find-results-table', 'children'), Output('find-results-count', 'children'),
      Output('find-results-map', 'figure')],
-    [Input('find-schools-btn', 'n_clicks'), Input('admit-rate-max', 'n_submit'),
+    [Input('find-schools-btn', 'n_clicks'), Input('admit-rate-min', 'n_submit'),
+     Input('admit-rate-max', 'n_submit'), Input('undergrad-min', 'n_submit'),
      Input('undergrad-max', 'n_submit')],
     [State('loctype-checklist', 'value'), State('admit-rate-min', 'value'),
      State('admit-rate-max', 'value'), State('undergrad-min', 'value'),
      State('undergrad-max', 'value'), State('find-test-type-toggle', 'value')],
     prevent_initial_call=True
 )
-def find_schools(n_clicks, admit_submit, undergrad_submit, loctypes, admit_min, admit_max, undergrad_min, undergrad_max, test_type):
+def find_schools(n_clicks, admit_min_submit, admit_max_submit, undergrad_min_submit, undergrad_max_submit, loctypes, admit_min, admit_max, undergrad_min, undergrad_max, test_type):
     """Search for schools matching the criteria."""
     max_year = cdat['year'].max()
     df_current = cdat[cdat['year'] == max_year].copy()
