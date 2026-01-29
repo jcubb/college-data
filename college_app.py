@@ -11,6 +11,16 @@ To run locally:
     python college_app.py
 
 Then open http://127.0.0.1:8050 in your browser.
+
+To view your logs on Render, you can connect to your PostgreSQL database and run:
+SELECT * FROM access_log ORDER BY timestamp DESC LIMIT 100;
+
+Or to see summary stats:
+SELECT page, COUNT(*), DATE(timestamp) as date 
+FROM access_log 
+GROUP BY page, DATE(timestamp) 
+ORDER BY date DESC;
+
 """
 
 import pandas as pd
@@ -470,7 +480,7 @@ def create_find_page():
                     )
                 ], style={'width': '60%', 'display': 'inline-block', 'verticalAlign': 'top'}),
                 
-                # Admit Rate Range
+                # Admit Rate Range and Undergraduate Range
                 html.Div([
                     html.Label('Admit Rate Range:', style={'fontWeight': 'bold', 'marginBottom': '10px', 'display': 'block'}),
                     html.Div([
@@ -483,9 +493,21 @@ def create_find_page():
                                  style={'width': '80px', 'padding': '5px', 'marginRight': '5px'}),
                         html.Span('%'),
                     ]),
+                    
+                    # Undergraduate Range (below Admit Rate)
+                    html.Label('Undergraduate Range:', style={'fontWeight': 'bold', 'marginBottom': '10px', 'marginTop': '15px', 'display': 'block'}),
+                    html.Div([
+                        html.Span('From: ', style={'marginRight': '5px'}),
+                        dcc.Input(id='undergrad-min', type='number', min=0, max=99999, step=100, value=0,
+                                 style={'width': '80px', 'padding': '5px', 'marginRight': '20px'}),
+                        html.Span('To: ', style={'marginRight': '5px'}),
+                        dcc.Input(id='undergrad-max', type='number', min=0, max=99999, step=100, value=99999,
+                                 style={'width': '80px', 'padding': '5px'}),
+                    ]),
                     html.P('(Lower bound is >=, upper bound is <=)', style={'fontSize': '12px', 'color': '#7f8c8d', 'marginTop': '5px'})
                 ], style={'width': '35%', 'display': 'inline-block', 'verticalAlign': 'top', 'marginLeft': '5%'}),
             ]),
+            
             html.Div([
                 html.Button('Find Schools', id='find-schools-btn', n_clicks=0,
                            style={'marginTop': '20px', 'padding': '12px 30px', 'backgroundColor': '#27ae60', 'color': 'white', 
@@ -1046,10 +1068,11 @@ def generate_pdf_report(n_clicks, reach, middle, likely, test_type, selected_pro
      Output('find-results-map', 'figure')],
     [Input('find-schools-btn', 'n_clicks')],
     [State('loctype-checklist', 'value'), State('admit-rate-min', 'value'),
-     State('admit-rate-max', 'value'), State('find-test-type-toggle', 'value')],
+     State('admit-rate-max', 'value'), State('undergrad-min', 'value'),
+     State('undergrad-max', 'value'), State('find-test-type-toggle', 'value')],
     prevent_initial_call=True
 )
-def find_schools(n_clicks, loctypes, admit_min, admit_max, test_type):
+def find_schools(n_clicks, loctypes, admit_min, admit_max, undergrad_min, undergrad_max, test_type):
     """Search for schools matching the criteria."""
     max_year = cdat['year'].max()
     df_current = cdat[cdat['year'] == max_year].copy()
@@ -1063,6 +1086,12 @@ def find_schools(n_clicks, loctypes, admit_min, admit_max, test_type):
     
     if admit_max is not None:
         df_current = df_current[df_current['percAdm'] <= admit_max]
+    
+    if undergrad_min is not None:
+        df_current = df_current[df_current['approxUndergrad'] >= undergrad_min]
+    
+    if undergrad_max is not None:
+        df_current = df_current[df_current['approxUndergrad'] <= undergrad_max]
     
     # Sort by admit rate
     df_current = df_current.sort_values('percAdm')
