@@ -22,6 +22,12 @@ from plotly.subplots import make_subplots
 import os
 import json
 
+# Database configuration - uses PostgreSQL if DATABASE_URL is set, otherwise local JSON
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if DATABASE_URL:
+    import psycopg2
+    from psycopg2.extras import Json
+
 
 # City coordinates for schools in the dataset (lat, lon)
 CITY_COORDS = {
@@ -124,28 +130,106 @@ def add_computed_fields(df):
     return df
 
 
-# --- Profile Management ---
+# --- Profile Management (Dual Mode: PostgreSQL on Render, JSON locally) ---
+
+def init_database():
+    """Initialize the PostgreSQL database table if it doesn't exist."""
+    if not DATABASE_URL:
+        return
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS profiles (
+                name TEXT PRIMARY KEY,
+                data JSONB NOT NULL
+            )
+        ''')
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Database init error: {e}")
+
+
 def load_profiles():
-    """Load user profiles from JSON file."""
-    if os.path.exists(PROFILES_FILE):
+    """Load user profiles from PostgreSQL or JSON file."""
+    if DATABASE_URL:
         try:
-            with open(PROFILES_FILE, 'r') as f:
-                return json.load(f)
-        except:
+            conn = psycopg2.connect(DATABASE_URL)
+            cur = conn.cursor()
+            cur.execute('SELECT name, data FROM profiles')
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+            return {row[0]: row[1] for row in rows}
+        except Exception as e:
+            print(f"Database load error: {e}")
             return {}
-    return {}
+    else:
+        if os.path.exists(PROFILES_FILE):
+            try:
+                with open(PROFILES_FILE, 'r') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
 
 
-def save_profiles(profiles):
-    """Save user profiles to JSON file."""
-    with open(PROFILES_FILE, 'w') as f:
-        json.dump(profiles, f, indent=2)
+def save_profile(name, data):
+    """Save a single profile to PostgreSQL or JSON file."""
+    if DATABASE_URL:
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            cur = conn.cursor()
+            cur.execute('''
+                INSERT INTO profiles (name, data) VALUES (%s, %s)
+                ON CONFLICT (name) DO UPDATE SET data = EXCLUDED.data
+            ''', (name, Json(data)))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"Database save error: {e}")
+    else:
+        profiles = load_profiles()
+        profiles[name] = data
+        with open(PROFILES_FILE, 'w') as f:
+            json.dump(profiles, f, indent=2)
+
+
+def delete_profile(name):
+    """Delete a profile from PostgreSQL or JSON file."""
+    if DATABASE_URL:
+        try:
+            conn = psycopg2.connect(DATABASE_URL)
+            cur = conn.cursor()
+            cur.execute('DELETE FROM profiles WHERE name = %s', (name,))
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"Database delete error: {e}")
+    else:
+        profiles = load_profiles()
+        if name in profiles:
+            del profiles[name]
+            with open(PROFILES_FILE, 'w') as f:
+                json.dump(profiles, f, indent=2)
 
 
 def get_profile_names():
     """Get list of saved profile names."""
     profiles = load_profiles()
     return sorted(profiles.keys())
+
+
+# Initialize database on startup if using PostgreSQL
+if DATABASE_URL:
+    init_database()
+    print("Using PostgreSQL database for profiles")
+else:
+    print("Using local JSON file for profiles")
 
 
 # Load data at startup
@@ -599,18 +683,19 @@ def manage_profiles(load_clicks, save_clicks, delete_clicks, selected_profile, n
             status = f'✗ Profile not found: {selected_profile}'
     
     elif triggered == 'save-profile-btn' and profile_name:
-        profiles[profile_name] = {
+        data = {
             'reach': reach or [],
             'middle': middle or [],
             'likely': likely or []
         }
-        save_profiles(profiles)
+        save_profile(profile_name, data)
+        profiles[profile_name] = data  # Update local copy for dropdown
         status = f'✓ Saved profile: {profile_name}'
     
     elif triggered == 'delete-profile-btn' and selected_profile:
         if selected_profile in profiles:
-            del profiles[selected_profile]
-            save_profiles(profiles)
+            delete_profile(selected_profile)
+            del profiles[selected_profile]  # Update local copy for dropdown
             reach, middle, likely = [], [], []
             status = f'✓ Deleted profile: {selected_profile}'
         else:

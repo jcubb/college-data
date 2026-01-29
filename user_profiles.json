@@ -16,22 +16,18 @@
       "Skidmore College"
     ]
   },
-  "Diane": {
+  "student1": {
     "reach": [
-      "Brown University",
-      "Bowdoin College",
-      "Swarthmore College"
+      "Princeton University",
+      "Yale University"
     ],
     "middle": [
-      "Boston College",
       "Grinnell College",
-      "Smith College",
-      "Tufts University"
+      "Carleton College"
     ],
     "likely": [
-      "Bard College",
-      "Case Western Reserve University",
-      "University of Vermont"
+      "Binghamton University",
+      "Bard College"
     ]
   }
 }
