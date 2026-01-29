@@ -33,6 +33,7 @@ from fpdf.enums import XPos, YPos
 import io
 import base64
 from datetime import datetime
+from flask import request
 
 
 # City coordinates for schools in the dataset (lat, lon)
@@ -139,7 +140,7 @@ def add_computed_fields(df):
 # --- Profile Management (Dual Mode: PostgreSQL on Render, JSON locally) ---
 
 def init_database():
-    """Initialize the PostgreSQL database table if it doesn't exist."""
+    """Initialize the PostgreSQL database tables if they don't exist."""
     if not DATABASE_URL:
         return
     try:
@@ -149,6 +150,15 @@ def init_database():
             CREATE TABLE IF NOT EXISTS profiles (
                 name TEXT PRIMARY KEY,
                 data JSONB NOT NULL
+            )
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS access_log (
+                id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMPTZ DEFAULT NOW(),
+                page TEXT,
+                ip_address TEXT,
+                user_agent TEXT
             )
         ''')
         conn.commit()
@@ -518,8 +528,32 @@ app.layout = html.Div([
 
 
 # --- URL Routing Callback ---
+def log_access(page):
+    """Log page access to PostgreSQL (only when DATABASE_URL is set)."""
+    if not DATABASE_URL:
+        return
+    try:
+        ip = request.remote_addr or 'unknown'
+        user_agent = request.headers.get('User-Agent', 'unknown')[:500]  # Truncate long user agents
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO access_log (page, ip_address, user_agent) VALUES (%s, %s, %s)',
+            (page, ip, user_agent)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Access log error: {e}")
+
+
 @callback(Output('page-content', 'children'), Input('url', 'pathname'))
 def display_page(pathname):
+    # Log the page access
+    page_name = pathname if pathname else '/'
+    log_access(page_name)
+    
     if pathname == '/find':
         return create_find_page()
     if pathname == '/lists':
