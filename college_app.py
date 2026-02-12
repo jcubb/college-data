@@ -294,18 +294,22 @@ HEADER_STYLE = {'color': '#34495e'}
 # --- Navigation ---
 def create_nav():
     link_style = {'marginRight': '25px', 'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}
+    sep = html.Span('|', style={'color': 'rgba(255,255,255,0.5)', 'marginRight': '25px'})
     return html.Div([
-        html.Span('📊 ', style={'fontSize': '16px'}),
-        dcc.Link('Compare Schools', href='/', style=link_style),
-        html.Span('|', style={'color': 'rgba(255,255,255,0.5)', 'marginRight': '25px'}),
         html.Span('🔍 ', style={'fontSize': '16px'}),
-        dcc.Link('Find Schools', href='/find', style=link_style),
-        html.Span('|', style={'color': 'rgba(255,255,255,0.5)', 'marginRight': '25px'}),
-        html.Span('📋 ', style={'fontSize': '16px'}),
-        dcc.Link('Build School Lists', href='/lists', style=link_style),
+        dcc.Link('Find Schools', href='/', style=link_style),
+        sep,
+        html.Span('📊 ', style={'fontSize': '16px'}),
+        dcc.Link('Compare Schools', href='/compare', style=link_style),
         html.Span('|', style={'color': 'rgba(255,255,255,0.5)', 'marginRight': '25px'}),
         html.Span('🏫 ', style={'fontSize': '16px'}),
-        dcc.Link('School Detail', href='/detail', style={'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}),
+        dcc.Link('School Detail', href='/detail', style=link_style),
+        html.Span('|', style={'color': 'rgba(255,255,255,0.5)', 'marginRight': '25px'}),
+        html.Span('🎯 ', style={'fontSize': '16px'}),
+        dcc.Link('Similar Schools', href='/similar', style=link_style),
+        html.Span('|', style={'color': 'rgba(255,255,255,0.5)', 'marginRight': '25px'}),
+        html.Span('📋 ', style={'fontSize': '16px'}),
+        dcc.Link('Build School Lists', href='/lists', style={'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}),
     ], style={'marginBottom': '20px', 'padding': '15px', 'backgroundColor': '#3498db', 'borderRadius': '5px', 'textAlign': 'center'})
 
 
@@ -590,13 +594,15 @@ def display_page(pathname):
     page_name = pathname if pathname else '/'
     log_access(page_name)
     
-    if pathname == '/find':
-        return create_find_page()
+    if pathname == '/compare':
+        return create_compare_page()
     if pathname == '/lists':
         return create_lists_page()
     if pathname and pathname.startswith('/detail'):
         return create_detail_page(pathname)
-    return create_compare_page()
+    if pathname == '/similar':
+        return create_similar_page()
+    return create_find_page()
 
 
 # --- Page 1 Callbacks ---
@@ -1427,6 +1433,247 @@ def update_detail_page(school):
     fig_scores.update_yaxes(title_text='Score', row=1, col=3)
     
     return info_card, stats_table, fig_trends, fig_gender, fig_scores
+
+
+# --- Page 5: Similar Schools Finder ---
+
+# Similarity dimensions: column name, display label, higher-is-better flag
+SIMILARITY_DIMS = [
+    ('percAdm', 'Admit Rate', False),
+    ('APPLCN', 'Applications', True),
+    ('approxUndergrad', 'Est. Undergrad Size', True),
+    ('SATMT50', 'SAT Math (50th)', True),
+    ('SATVR50', 'SAT Verbal (50th)', True),
+    ('ACTCM50', 'ACT Composite (50th)', True),
+    ('approxPercWom', '% Women', None),
+]
+
+
+def compute_similar_schools(target_school, weights, n=10):
+    """Find the most similar schools using weighted normalised Euclidean distance."""
+    max_year = cdat['year'].max()
+    df_curr = cdat[cdat['year'] == max_year].copy()
+
+    cols = [dim[0] for dim in SIMILARITY_DIMS]
+    # Need at least some data for the target
+    target_row = df_curr[df_curr['INSTNM'] == target_school]
+    if target_row.empty:
+        return pd.DataFrame()
+
+    # Normalise each column to 0-1 range using min-max
+    df_norm = df_curr[['INSTNM'] + cols].copy()
+    col_stats = {}
+    for col in cols:
+        cmin = df_norm[col].min()
+        cmax = df_norm[col].max()
+        rng = cmax - cmin if cmax != cmin else 1
+        df_norm[col + '_n'] = (df_norm[col] - cmin) / rng
+        col_stats[col] = (cmin, cmax, rng)
+
+    target_norm = df_norm[df_norm['INSTNM'] == target_school].iloc[0]
+
+    # Weighted Euclidean distance
+    def calc_dist(row):
+        dist_sq = 0
+        w_total = 0
+        for i, (col, _label, _hib) in enumerate(SIMILARITY_DIMS):
+            w = weights[i]
+            tn = target_norm[col + '_n']
+            rn = row[col + '_n']
+            if pd.notna(tn) and pd.notna(rn):
+                dist_sq += w * (tn - rn) ** 2
+                w_total += w
+        return (dist_sq / w_total) ** 0.5 if w_total > 0 else float('inf')
+
+    df_norm['distance'] = df_norm.apply(calc_dist, axis=1)
+    df_norm = df_norm[df_norm['INSTNM'] != target_school]
+    df_norm = df_norm.sort_values('distance').head(n)
+
+    # Build result with original values
+    result = df_curr[df_curr['INSTNM'].isin(df_norm['INSTNM'])].copy()
+    result = result.merge(df_norm[['INSTNM', 'distance']], on='INSTNM')
+    result = result.sort_values('distance')
+    return result
+
+
+def create_similar_page():
+    """Create the Similar Schools finder page."""
+    slider_style = {'width': '100%'}
+    label_style = {'fontWeight': 'bold', 'fontSize': '13px', 'marginBottom': '2px'}
+
+    weight_controls = []
+    for i, (col, label, _hib) in enumerate(SIMILARITY_DIMS):
+        default = 1.0
+        weight_controls.append(
+            html.Div([
+                html.Label(label, style=label_style),
+                dcc.Slider(id=f'sim-weight-{i}', min=0, max=3, step=0.5, value=default,
+                           marks={0: '0', 1: '1', 2: '2', 3: '3'},
+                           tooltip={'placement': 'bottom'}),
+            ], style={'flex': '1', 'minWidth': '140px', 'padding': '5px 10px'})
+        )
+
+    return html.Div([
+        create_nav(),
+        html.H1('Similar Schools Finder',
+                style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
+        html.P('Find schools with similar profiles based on weighted dimensions',
+               style={'textAlign': 'center', 'color': '#7f8c8d', 'marginBottom': '30px'}),
+
+        # School Selection
+        html.Div([
+            html.Div([
+                html.Label('Select a School:', style={'fontWeight': 'bold', 'marginRight': '15px'}),
+                dcc.Dropdown(id='similar-school-dropdown',
+                            options=[{'label': s, 'value': s} for s in school_list],
+                            value=DEFAULT_SCHOOLS[0],
+                            searchable=True, placeholder='Type to search...',
+                            style={'width': '400px', 'display': 'inline-block', 'verticalAlign': 'middle'}),
+                html.Label('Number of results:', style={'fontWeight': 'bold', 'marginLeft': '30px', 'marginRight': '10px'}),
+                dcc.Dropdown(id='similar-count',
+                            options=[{'label': str(n), 'value': n} for n in [5, 10, 15, 20]],
+                            value=10, clearable=False,
+                            style={'width': '80px', 'display': 'inline-block', 'verticalAlign': 'middle'}),
+            ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+        ], style=SECTION_STYLE),
+
+        # Weight Controls
+        html.Div([
+            html.H3('Adjust Similarity Weights', style=HEADER_STYLE),
+            html.P('Set each dimension\'s importance (0 = ignore, 3 = most important)',
+                   style={'color': '#7f8c8d', 'fontSize': '13px', 'marginBottom': '15px'}),
+            html.Div(weight_controls,
+                     style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '5px'}),
+        ], style=SECTION_STYLE),
+
+        # Results
+        html.Div([
+            html.H3('Most Similar Schools', style=HEADER_STYLE),
+            html.Div(id='similar-results-table'),
+        ], style={'marginBottom': '20px'}),
+
+        # Radar Chart
+        html.Div([
+            html.H3('Profile Comparison', style=HEADER_STYLE),
+            dcc.Graph(id='similar-radar-chart'),
+        ], style={'marginBottom': '20px'}),
+
+        html.Div([html.Hr(), html.P('Data Source: IPEDS (Integrated Postsecondary Education Data System)',
+                   style={'textAlign': 'center', 'color': '#95a5a6', 'fontSize': '12px'})])
+    ], style={'maxWidth': '1400px', 'margin': '0 auto', 'padding': '20px', 'fontFamily': 'Arial, sans-serif'})
+
+
+@callback(
+    [Output('similar-results-table', 'children'),
+     Output('similar-radar-chart', 'figure')],
+    [Input('similar-school-dropdown', 'value'),
+     Input('similar-count', 'value')] +
+    [Input(f'sim-weight-{i}', 'value') for i in range(len(SIMILARITY_DIMS))]
+)
+def update_similar_schools(school, n_results, *weight_values):
+    """Update the similar schools results."""
+    if not school:
+        return html.P('Select a school.'), go.Figure()
+
+    weights = list(weight_values)
+    if all(w == 0 for w in weights):
+        return html.P('Set at least one weight above 0.', style={'color': '#e74c3c'}), go.Figure()
+
+    n_results = n_results or 10
+    similar = compute_similar_schools(school, weights, n=n_results)
+
+    if similar.empty:
+        return html.P('No similar schools found.'), go.Figure()
+
+    # --- Results Table ---
+    def fmt(val, fmt_str=','):
+        if pd.notna(val):
+            if fmt_str == ',':
+                return f'{int(val):,}'
+            elif fmt_str == '%':
+                return f'{val:.1f}%'
+            elif fmt_str == '.2f':
+                return f'{val:.2f}'
+            elif fmt_str == '.3f':
+                return f'{val:.3f}'
+        return '-'
+
+    df_display = pd.DataFrame()
+    df_display['Rank'] = range(1, len(similar) + 1)
+    df_display['School'] = similar['INSTNM'].values
+    df_display['Location'] = (similar['CITY'] + ', ' + similar['STABBR']).values
+    df_display['Admit Rate'] = similar['percAdm'].apply(lambda x: fmt(x, '%')).values
+    df_display['Applications'] = similar['APPLCN'].apply(lambda x: fmt(x)).values
+    df_display['Est. Ugrad'] = similar['approxUndergrad'].apply(lambda x: fmt(x)).values
+    df_display['SAT M 50'] = similar['SATMT50'].apply(lambda x: fmt(x)).values
+    df_display['SAT V 50'] = similar['SATVR50'].apply(lambda x: fmt(x)).values
+    df_display['ACT C 50'] = similar['ACTCM50'].apply(lambda x: fmt(x)).values
+    df_display['% Women'] = similar['approxPercWom'].apply(lambda x: fmt(x, '%')).values
+    df_display['Similarity'] = similar['distance'].apply(lambda x: fmt(x, '.3f')).values
+
+    results_table = dash_table.DataTable(
+        data=df_display.to_dict('records'),
+        columns=[{'name': c, 'id': c} for c in df_display.columns],
+        sort_action='native',
+        sort_mode='single',
+        style_cell={'textAlign': 'center', 'padding': '8px', 'fontSize': '13px'},
+        style_header={'backgroundColor': '#3498db', 'color': 'white', 'fontWeight': 'bold', 'cursor': 'pointer'},
+        style_data_conditional=[
+            {'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'},
+            {'if': {'column_id': 'School'}, 'textAlign': 'left'},
+            {'if': {'column_id': 'Location'}, 'textAlign': 'left'},
+        ]
+    )
+
+    # --- Radar Chart ---
+    max_year = cdat['year'].max()
+    target_row = cdat[(cdat['INSTNM'] == school) & (cdat['year'] == max_year)].iloc[0]
+    dim_labels = [d[1] for d in SIMILARITY_DIMS]
+    dim_cols = [d[0] for d in SIMILARITY_DIMS]
+
+    # Normalise to 0-100 scale for radar
+    df_curr = cdat[cdat['year'] == max_year]
+    norm_vals = {}
+    for col in dim_cols:
+        cmin, cmax = df_curr[col].min(), df_curr[col].max()
+        rng = cmax - cmin if cmax != cmin else 1
+        norm_vals[col] = (cmin, rng)
+
+    def normalise(val, col):
+        cmin, rng = norm_vals[col]
+        if pd.notna(val):
+            return 100 * (val - cmin) / rng
+        return 0
+
+    # Target school trace
+    target_r = [normalise(target_row[c], c) for c in dim_cols]
+    target_r.append(target_r[0])  # close the polygon
+    labels_closed = dim_labels + [dim_labels[0]]
+
+    fig_radar = go.Figure()
+    fig_radar.add_trace(go.Scatterpolar(
+        r=target_r, theta=labels_closed, name=school,
+        fill='toself', fillcolor='rgba(52, 152, 219, 0.15)',
+        line=dict(color='#3498db', width=3)
+    ))
+
+    # Top 3 similar schools
+    colors = ['#e74c3c', '#27ae60', '#f39c12']
+    for idx, (_, row) in enumerate(similar.head(3).iterrows()):
+        r_vals = [normalise(row[c], c) for c in dim_cols]
+        r_vals.append(r_vals[0])
+        fig_radar.add_trace(go.Scatterpolar(
+            r=r_vals, theta=labels_closed, name=row['INSTNM'],
+            line=dict(color=colors[idx], width=2, dash='dash')
+        ))
+
+    fig_radar.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[0, 100], showticklabels=False)),
+        showlegend=True, height=500, margin=dict(t=40, b=40),
+        legend=dict(orientation='h', yanchor='bottom', y=-0.2, xanchor='center', x=0.5)
+    )
+
+    return results_table, fig_radar
 
 
 # --- Run Server ---
