@@ -1232,16 +1232,16 @@ def create_detail_page(pathname=None):
             dcc.Graph(id='detail-trends-chart', style={'height': '500px'})
         ], style={'marginBottom': '20px'}),
         
-        # Gender Trends
-        html.Div([
-            html.H3('Gender Breakdown Trends', style=HEADER_STYLE),
-            dcc.Graph(id='detail-gender-chart', style={'height': '400px'})
-        ], style={'marginBottom': '20px'}),
-        
         # Test Score Trends
         html.Div([
             html.H3('Test Score Trends', style=HEADER_STYLE),
             dcc.Graph(id='detail-scores-chart', style={'height': '400px'})
+        ], style={'marginBottom': '20px'}),
+        
+        # Gender Trends
+        html.Div([
+            html.H3('Gender Breakdown Trends', style=HEADER_STYLE),
+            dcc.Graph(id='detail-gender-chart', style={'height': '400px'})
         ], style={'marginBottom': '20px'}),
         
         html.Div([html.Hr(), html.P('Data Source: IPEDS (Integrated Postsecondary Education Data System)',
