@@ -21,6 +21,8 @@ python collegestats.py --year 2023 --db $env:DB --ids $env:IDS --folder-tag "Pro
 # Multi-year time series (2014-2023, with 2023 as provisional):
 python collegestats.py --year 2023 --db $env:DB --ids $env:IDS --folder-tag "Provisional" --start-year 2014
 
+~If want to add more schools to select_college_IDs.xlsx, go into one of the access DBs and look at the HDyyyy table.
+
 @author: gcubb
 """
 import pyodbc

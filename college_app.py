@@ -21,6 +21,17 @@ FROM access_log
 GROUP BY page, DATE(timestamp) 
 ORDER BY date DESC;
 
+Or in Python: 
+import psycopg2
+cstr = "postgresql://college_data_db_user:RawVFPaESW0YX9NLvRKpacBmqliHMCJh@dpg-d5tn4v24d50c73caggng-a.oregon-postgres.render.com/college_data_db"
+conn = psycopg2.connect(cstr)
+cur = conn.cursor()
+cur.execute('SELECT * FROM access_log ORDER BY timestamp DESC LIMIT 20')
+for row in cur.fetchall():
+    print(row)
+cur.close()
+conn.close()
+
 """
 
 import pandas as pd
@@ -291,7 +302,10 @@ def create_nav():
         dcc.Link('Find Schools', href='/find', style=link_style),
         html.Span('|', style={'color': 'rgba(255,255,255,0.5)', 'marginRight': '25px'}),
         html.Span('📋 ', style={'fontSize': '16px'}),
-        dcc.Link('Build School Lists', href='/lists', style={'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}),
+        dcc.Link('Build School Lists', href='/lists', style=link_style),
+        html.Span('|', style={'color': 'rgba(255,255,255,0.5)', 'marginRight': '25px'}),
+        html.Span('🏫 ', style={'fontSize': '16px'}),
+        dcc.Link('School Detail', href='/detail', style={'fontSize': '16px', 'color': 'white', 'textDecoration': 'none', 'fontWeight': 'bold'}),
     ], style={'marginBottom': '20px', 'padding': '15px', 'backgroundColor': '#3498db', 'borderRadius': '5px', 'textAlign': 'center'})
 
 
@@ -580,6 +594,8 @@ def display_page(pathname):
         return create_find_page()
     if pathname == '/lists':
         return create_lists_page()
+    if pathname and pathname.startswith('/detail'):
+        return create_detail_page(pathname)
     return create_compare_page()
 
 
@@ -670,8 +686,10 @@ def create_school_table(df_current, test_type, category_col=None):
     table = dash_table.DataTable(
         data=df_table.to_dict('records'),
         columns=[{'name': c, 'id': c} for c in df_table.columns],
+        sort_action='native',
+        sort_mode='single',
         style_cell={'textAlign': 'left', 'padding': '10px', 'fontSize': '14px'},
-        style_header={'backgroundColor': '#3498db', 'color': 'white', 'fontWeight': 'bold'},
+        style_header={'backgroundColor': '#3498db', 'color': 'white', 'fontWeight': 'bold', 'cursor': 'pointer'},
         style_data_conditional=style_data_conditional
     )
     
@@ -1164,6 +1182,251 @@ def find_schools(n_clicks, admit_min_submit, admit_max_submit, undergrad_min_sub
     
     count_text = f'Found {count} school{"s" if count != 1 else ""} matching your criteria.'
     return create_school_table(df_current, test_type), count_text, fig
+
+
+# --- Page 4: School Detail ---
+def create_detail_page(pathname=None):
+    """Create the school detail page."""
+    # Extract school name from URL if provided (e.g., /detail/Stanford%20University)
+    url_school = None
+    if pathname and pathname.startswith('/detail/'):
+        from urllib.parse import unquote
+        url_school = unquote(pathname[8:])  # Skip '/detail/'
+        if url_school not in school_list:
+            url_school = None
+    
+    return html.Div([
+        create_nav(),
+        html.H1('School Detail',
+                style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': '10px'}),
+        html.P('View comprehensive data and trends for a single school',
+               style={'textAlign': 'center', 'color': '#7f8c8d', 'marginBottom': '30px'}),
+        
+        # School Selection
+        html.Div([
+            html.Div([
+                html.Label('Select a School:', style={'fontWeight': 'bold', 'marginRight': '15px'}),
+                dcc.Dropdown(id='detail-school-dropdown',
+                            options=[{'label': s, 'value': s} for s in school_list],
+                            value=url_school or DEFAULT_SCHOOLS[0],
+                            searchable=True, placeholder='Type to search...',
+                            style={'width': '400px', 'display': 'inline-block', 'verticalAlign': 'middle'}),
+            ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'center'}),
+        ], style=SECTION_STYLE),
+        
+        # School Info Card
+        html.Div(id='detail-info-card', style={'marginBottom': '20px'}),
+        
+        # Key Stats Summary
+        html.Div(id='detail-stats-table', style={'marginBottom': '20px'}),
+        
+        # Trends Charts
+        html.Div([
+            html.H3('Trends Over Time', style=HEADER_STYLE),
+            dcc.Graph(id='detail-trends-chart', style={'height': '500px'})
+        ], style={'marginBottom': '20px'}),
+        
+        # Gender Trends
+        html.Div([
+            html.H3('Gender Breakdown Trends', style=HEADER_STYLE),
+            dcc.Graph(id='detail-gender-chart', style={'height': '400px'})
+        ], style={'marginBottom': '20px'}),
+        
+        # Test Score Trends
+        html.Div([
+            html.H3('Test Score Trends', style=HEADER_STYLE),
+            dcc.Graph(id='detail-scores-chart', style={'height': '400px'})
+        ], style={'marginBottom': '20px'}),
+        
+        html.Div([html.Hr(), html.P('Data Source: IPEDS (Integrated Postsecondary Education Data System)',
+                   style={'textAlign': 'center', 'color': '#95a5a6', 'fontSize': '12px'})])
+    ], style={'maxWidth': '1400px', 'margin': '0 auto', 'padding': '20px', 'fontFamily': 'Arial, sans-serif'})
+
+
+@callback(
+    [Output('detail-info-card', 'children'),
+     Output('detail-stats-table', 'children'),
+     Output('detail-trends-chart', 'figure'),
+     Output('detail-gender-chart', 'figure'),
+     Output('detail-scores-chart', 'figure')],
+    Input('detail-school-dropdown', 'value')
+)
+def update_detail_page(school):
+    """Update the school detail page."""
+    if not school:
+        empty = go.Figure()
+        return html.P('Select a school.'), html.Div(), empty, empty, empty
+    
+    df_school = cdat[cdat['INSTNM'] == school].sort_values('year')
+    max_year = df_school['year'].max()
+    current = df_school[df_school['year'] == max_year].iloc[0]
+    
+    # --- Info Card ---
+    def fmt(val, fmt_str=','):
+        if pd.notna(val):
+            if fmt_str == ',':
+                return f'{int(val):,}'
+            elif fmt_str == '%':
+                return f'{val:.1f}%'
+            elif fmt_str == '.2f':
+                return f'{val:.2f}'
+        return '-'
+    
+    info_card = html.Div([
+        html.Div([
+            html.H2(school, style={'color': '#2c3e50', 'marginBottom': '5px'}),
+            html.P(f"{current['CITY']}, {current['STABBR']}  ·  {current.get('LOCALE', '-')}",
+                   style={'fontSize': '16px', 'color': '#7f8c8d', 'marginBottom': '5px'}),
+            html.P(f"IPEDS UNITID: {int(current['UNITID'])}  ·  Data: {int(df_school['year'].min())}–{int(max_year)}",
+                   style={'fontSize': '13px', 'color': '#95a5a6'}),
+        ], style={'flex': '1'}),
+        html.Div([
+            html.Div([
+                html.Span(fmt(current['percAdm'], '%'), style={'fontSize': '28px', 'fontWeight': 'bold', 'color': '#e74c3c'}),
+                html.Br(),
+                html.Span('Admit Rate', style={'fontSize': '12px', 'color': '#7f8c8d'}),
+            ], style={'textAlign': 'center', 'marginRight': '30px', 'display': 'inline-block'}),
+            html.Div([
+                html.Span(fmt(current['APPLCN']), style={'fontSize': '28px', 'fontWeight': 'bold', 'color': '#3498db'}),
+                html.Br(),
+                html.Span('Applications', style={'fontSize': '12px', 'color': '#7f8c8d'}),
+            ], style={'textAlign': 'center', 'marginRight': '30px', 'display': 'inline-block'}),
+            html.Div([
+                html.Span(fmt(current['approxUndergrad']), style={'fontSize': '28px', 'fontWeight': 'bold', 'color': '#27ae60'}),
+                html.Br(),
+                html.Span('Est. Undergrad', style={'fontSize': '12px', 'color': '#7f8c8d'}),
+            ], style={'textAlign': 'center', 'display': 'inline-block'}),
+        ]),
+    ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'space-between',
+             'padding': '20px', 'backgroundColor': '#ecf0f1', 'borderRadius': '10px', 'marginBottom': '20px'})
+    
+    # --- Stats Table (all years) ---
+    def format_range_str(row, col25, col75):
+        v25, v75 = row.get(col25), row.get(col75)
+        if pd.notna(v25) and pd.notna(v75):
+            return f"{int(v25)}–{int(v75)}"
+        return '-'
+    
+    df_stats = df_school[['year']].copy()
+    df_stats['Applications'] = df_school['APPLCN'].apply(lambda x: fmt(x))
+    df_stats['Admissions'] = df_school['ADMSSN'].apply(lambda x: fmt(x))
+    df_stats['Admit Rate'] = df_school['percAdm'].apply(lambda x: fmt(x, '%'))
+    df_stats['Enrolled FT'] = (df_school['ENRLFTM'] + df_school['ENRLFTW']).apply(lambda x: fmt(x))
+    df_stats['Est. Ugrad'] = df_school['approxUndergrad'].apply(lambda x: fmt(x))
+    df_stats['% Women'] = df_school['approxPercWom'].apply(lambda x: fmt(x, '%'))
+    df_stats['SAT M 25-75'] = df_school.apply(lambda r: format_range_str(r, 'SATMT25', 'SATMT75'), axis=1)
+    df_stats['SAT V 25-75'] = df_school.apply(lambda r: format_range_str(r, 'SATVR25', 'SATVR75'), axis=1)
+    df_stats['ACT C 25-75'] = df_school.apply(lambda r: format_range_str(r, 'ACTCM25', 'ACTCM75'), axis=1)
+    df_stats['Year'] = df_stats['year'].astype(int)
+    df_stats = df_stats.drop(columns=['year']).sort_values('Year', ascending=False)
+    
+    # Reorder so Year is first
+    cols = ['Year'] + [c for c in df_stats.columns if c != 'Year']
+    df_stats = df_stats[cols]
+    
+    stats_table = html.Div([
+        html.H3('Year-by-Year Data', style=HEADER_STYLE),
+        dash_table.DataTable(
+            data=df_stats.to_dict('records'),
+            columns=[{'name': c, 'id': c} for c in df_stats.columns],
+            sort_action='native',
+            sort_mode='single',
+            style_cell={'textAlign': 'center', 'padding': '8px', 'fontSize': '13px'},
+            style_header={'backgroundColor': '#3498db', 'color': 'white', 'fontWeight': 'bold', 'cursor': 'pointer'},
+            style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#f8f9fa'}]
+        )
+    ])
+    
+    # --- Trends Chart (Admit Rate, Applications, Est. Undergrad) ---
+    fig_trends = make_subplots(rows=1, cols=3,
+                               subplot_titles=('Admit Rate (%)', 'Applications', 'Est. Undergrad Size'))
+    
+    fig_trends.add_trace(go.Scatter(x=df_school['year'], y=df_school['percAdm'],
+                                    mode='lines+markers', line=dict(color='#e74c3c'),
+                                    name='Admit Rate'), row=1, col=1)
+    fig_trends.add_trace(go.Scatter(x=df_school['year'], y=df_school['APPLCN'],
+                                    mode='lines+markers', line=dict(color='#3498db'),
+                                    name='Applications'), row=1, col=2)
+    fig_trends.add_trace(go.Scatter(x=df_school['year'], y=df_school['approxUndergrad'],
+                                    mode='lines+markers', line=dict(color='#27ae60'),
+                                    name='Est. Undergrad'), row=1, col=3)
+    
+    fig_trends.update_layout(height=350, showlegend=False, margin=dict(t=40, b=40))
+    fig_trends.update_xaxes(dtick=1)
+    fig_trends.update_yaxes(title_text='%', row=1, col=1)
+    fig_trends.update_yaxes(title_text='Count', row=1, col=2)
+    fig_trends.update_yaxes(title_text='Count', row=1, col=3)
+    
+    # --- Gender Chart ---
+    fig_gender = make_subplots(rows=1, cols=3,
+                               subplot_titles=('App % by Gender', 'Admit Rate by Gender', 'Adm+ Ratio by Gender'))
+    
+    fig_gender.add_trace(go.Scatter(x=df_school['year'], y=df_school['APP_M_pct'],
+                                    mode='lines+markers', name='Men App%',
+                                    line=dict(color='#3498db')), row=1, col=1)
+    fig_gender.add_trace(go.Scatter(x=df_school['year'], y=df_school['APP_W_pct'],
+                                    mode='lines+markers', name='Women App%',
+                                    line=dict(color='#e74c3c')), row=1, col=1)
+    
+    fig_gender.add_trace(go.Scatter(x=df_school['year'], y=df_school['percAdmMen'],
+                                    mode='lines+markers', name='Men Adm%',
+                                    line=dict(color='#3498db', dash='dash')), row=1, col=2)
+    fig_gender.add_trace(go.Scatter(x=df_school['year'], y=df_school['percAdmWom'],
+                                    mode='lines+markers', name='Women Adm%',
+                                    line=dict(color='#e74c3c', dash='dash')), row=1, col=2)
+    
+    fig_gender.add_trace(go.Scatter(x=df_school['year'], y=df_school['ADM_M_ratio'],
+                                    mode='lines+markers', name='Adm+ Men',
+                                    line=dict(color='#3498db', dash='dot')), row=1, col=3)
+    fig_gender.add_trace(go.Scatter(x=df_school['year'], y=df_school['ADM_W_ratio'],
+                                    mode='lines+markers', name='Adm+ Women',
+                                    line=dict(color='#e74c3c', dash='dot')), row=1, col=3)
+    # Reference line at 1.0 for Adm+ ratio
+    fig_gender.add_hline(y=1.0, line_dash='dash', line_color='gray', opacity=0.5, row=1, col=3)
+    
+    fig_gender.update_layout(height=350, margin=dict(t=40, b=40),
+                             legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='center', x=0.5))
+    fig_gender.update_xaxes(dtick=1)
+    fig_gender.update_yaxes(title_text='%', row=1, col=1)
+    fig_gender.update_yaxes(title_text='%', row=1, col=2)
+    fig_gender.update_yaxes(title_text='Ratio', row=1, col=3)
+    
+    # --- Test Score Trends ---
+    fig_scores = make_subplots(rows=1, cols=3,
+                               subplot_titles=('SAT Math (25th & 75th)', 'SAT Verbal (25th & 75th)', 'ACT Composite (25th & 75th)'))
+    
+    # SAT Math
+    fig_scores.add_trace(go.Scatter(x=df_school['year'], y=df_school['SATMT75'],
+                                    mode='lines+markers', name='SAT M 75th',
+                                    line=dict(color='#8e44ad')), row=1, col=1)
+    fig_scores.add_trace(go.Scatter(x=df_school['year'], y=df_school['SATMT25'],
+                                    mode='lines+markers', name='SAT M 25th',
+                                    line=dict(color='#8e44ad', dash='dash')), row=1, col=1)
+    
+    # SAT Verbal
+    fig_scores.add_trace(go.Scatter(x=df_school['year'], y=df_school['SATVR75'],
+                                    mode='lines+markers', name='SAT V 75th',
+                                    line=dict(color='#e67e22')), row=1, col=2)
+    fig_scores.add_trace(go.Scatter(x=df_school['year'], y=df_school['SATVR25'],
+                                    mode='lines+markers', name='SAT V 25th',
+                                    line=dict(color='#e67e22', dash='dash')), row=1, col=2)
+    
+    # ACT Composite
+    fig_scores.add_trace(go.Scatter(x=df_school['year'], y=df_school['ACTCM75'],
+                                    mode='lines+markers', name='ACT C 75th',
+                                    line=dict(color='#16a085')), row=1, col=3)
+    fig_scores.add_trace(go.Scatter(x=df_school['year'], y=df_school['ACTCM25'],
+                                    mode='lines+markers', name='ACT C 25th',
+                                    line=dict(color='#16a085', dash='dash')), row=1, col=3)
+    
+    fig_scores.update_layout(height=350, margin=dict(t=40, b=40),
+                             legend=dict(orientation='h', yanchor='bottom', y=1.05, xanchor='center', x=0.5))
+    fig_scores.update_xaxes(dtick=1)
+    fig_scores.update_yaxes(title_text='Score', row=1, col=1)
+    fig_scores.update_yaxes(title_text='Score', row=1, col=2)
+    fig_scores.update_yaxes(title_text='Score', row=1, col=3)
+    
+    return info_card, stats_table, fig_trends, fig_gender, fig_scores
 
 
 # --- Run Server ---
